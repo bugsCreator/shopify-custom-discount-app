@@ -62,7 +62,7 @@ function createDiscountOperation(eligibleLines, percentOff, minQty) {
                         cartLine: { id: line.id }
                     })),
                     value: { percentage: { value: percentOff } },
-                    message: `${percentOff}% OFF (Buy ${minQty}+) on selected products`,
+                    message: `Buy ${minQty}, get ${percentOff}% off`,
                 }
             ],
             selectionStrategy: ProductDiscountSelectionStrategy.First,

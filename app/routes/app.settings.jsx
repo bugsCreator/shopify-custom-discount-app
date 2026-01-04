@@ -66,44 +66,103 @@ export const action = async ({ request }) => {
 
     const functionId = formData.get("functionId");
 
-    // Get Shop ID first
-    const shopResponse = await admin.graphql(`query { shop { id } }`);
-    const shopResponseJson = await shopResponse.json();
-    const shopId = shopResponseJson.data.shop.id;
+    if (!functionId) {
+        return { errors: [{ message: "Function ID is required" }] };
+    }
 
-    // Save function ID to shop metafield
-    const metafieldResponse = await admin.graphql(
+    // Get Shop ID
+    const shopResponse = await admin.graphql(`query { shop { id } }`);
+    const shopData = await shopResponse.json();
+    const shopId = shopData.data.shop.id;
+
+    // Default discount configuration
+    const title = "Buy N, get X% off";
+    const quantity = 2;
+    const percentage = 10;
+    const productIds = [];
+
+    const baseConfig = {
+        products: productIds,
+        minQty: quantity,
+        percentOff: percentage,
+    };
+
+    // Create discount and set shop metafield in one mutation
+    const response = await admin.graphql(
         `#graphql
-      mutation SetShopMetafield($metafields: [MetafieldsSetInput!]!) {
-        metafieldsSet(metafields: $metafields) {
-          userErrors {
-            field
-            message
-          }
-        }
-      }`,
+        mutation CreateDiscount($automaticAppDiscount: DiscountAutomaticAppInput!, $metafieldsSetInput: [MetafieldsSetInput!]!) {
+            discountAutomaticAppCreate(automaticAppDiscount: $automaticAppDiscount) {
+                userErrors {
+                    field
+                    message
+                }
+                automaticAppDiscount {
+                    discountId
+                    title
+                }
+            }
+            metafieldsSet(metafields: $metafieldsSetInput) {
+                userErrors {
+                    field
+                    message
+                }
+            }
+        }`,
         {
             variables: {
-                metafields: [
+                automaticAppDiscount: {
+                    title,
+                    functionId,
+                    startsAt: new Date(Date.now() - 3600000).toISOString(),
+                    metafields: [
+                        {
+                            namespace: "$app:volume-discount",
+                            key: "function-configuration",
+                            type: "json",
+                            value: JSON.stringify(baseConfig),
+                        },
+                    ],
+                    discountClasses: ["PRODUCT"],
+                },
+                metafieldsSetInput: [
                     {
-                        ownerId: shopId,
                         namespace: "volume_discount",
                         key: "function_id",
                         type: "single_line_text_field",
+                        ownerId: shopId,
                         value: functionId
+                    },
+                    {
+                        namespace: "volume_discount",
+                        key: "rules",
+                        type: "json",
+                        ownerId: shopId,
+                        value: JSON.stringify(baseConfig)
                     }
                 ]
-            }
+            },
         }
     );
 
-    const metafieldResult = await metafieldResponse.json();
-    if (metafieldResult.data.metafieldsSet.userErrors.length > 0) {
-        console.error("Metafield Error:", metafieldResult.data.metafieldsSet.userErrors);
-        return { errors: metafieldResult.data.metafieldsSet.userErrors };
+    const responseJson = await response.json();
+    console.log('Discount Creation Response:', JSON.stringify(responseJson, null, 2));
+
+    const errors = responseJson.data.discountAutomaticAppCreate?.userErrors || [];
+    const metafieldErrors = responseJson.data.metafieldsSet?.userErrors || [];
+
+    if (errors.length > 0 || metafieldErrors.length > 0) {
+        console.error("Errors:", { discountErrors: errors, metafieldErrors });
+        return {
+            errors: [...errors, ...metafieldErrors],
+            message: "Failed to create discount. Please check the errors."
+        };
     }
 
-    return { success: true, message: "Function ID saved successfully" };
+    return {
+        success: true,
+        message: "Function ID saved and discount created successfully! You can now edit it to add products.",
+        discount: responseJson.data.discountAutomaticAppCreate.automaticAppDiscount
+    };
 };
 
 export default function Settings() {
@@ -232,6 +291,33 @@ export default function Settings() {
                                     >
                                         Save Function ID
                                     </Button>
+                                </InlineStack>
+                            </BlockStack>
+                        </Card>
+
+                        {/* Section 3: Create Discount */}
+                        <Card>
+                            <BlockStack gap="400">
+                                <BlockStack gap="200">
+                                    <Text variant="headingMd" as="h2">Create Discount</Text>
+                                    <Text variant="bodyMd" tone="subdued">
+                                        Once you've configured your function, create a discount to start offering volume discounts to your customers.
+                                    </Text>
+                                </BlockStack>
+
+                                <InlineStack align="start" gap="300">
+                                    <Button
+                                        variant="primary"
+                                        onClick={() => navigate("/app/discount")}
+                                        disabled={!functionId}
+                                    >
+                                        Create Discount
+                                    </Button>
+                                    {!functionId && (
+                                        <Text variant="bodySm" tone="subdued">
+                                            Please save a Function ID first
+                                        </Text>
+                                    )}
                                 </InlineStack>
                             </BlockStack>
                         </Card>

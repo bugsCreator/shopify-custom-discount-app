@@ -93,6 +93,9 @@ export const action = async ({ request }) => {
 
     const productIds = productDetails.map(p => p.id);
 
+    // Enrich products with full details (handle, image) for widget
+    const enrichedProducts = await enrichProductDetails(admin, productIds);
+
     // Save to shop metafield for discount function and widget
     const shopResponse = await admin.graphql(`query { shop { id } }`);
     const shopData = await shopResponse.json();
@@ -100,7 +103,7 @@ export const action = async ({ request }) => {
 
     const { errors: shopMetafieldErrors } = await saveShopMetafield(admin, {
         shopId,
-        products: productDetails,
+        products: enrichedProducts,
         minQty: quantity,
         percentOff: percentage
     });

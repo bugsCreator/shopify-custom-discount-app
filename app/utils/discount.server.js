@@ -111,7 +111,29 @@ export async function getDiscountDetails(admin, discountId) {
  * Create a new discount
  */
 export async function createDiscount(admin, { title, quantity, percentage, productIds }) {
-  const functionId = process.env.SHOPIFY_VOLUME_DISCOUNT_ID || "019b8930-7d49-7741-ba32-edd9721a5722";
+  // Fetch the function ID from shop metafield (saved in settings)
+  const shopResponse = await admin.graphql(`
+    query {
+      shop {
+        metafield(namespace: "volume_discount", key: "function_id") {
+          value
+        }
+      }
+    }
+  `);
+
+  const shopData = await shopResponse.json();
+  const functionId = shopData.data.shop.metafield?.value;
+
+  if (!functionId) {
+    return {
+      errors: [{
+        field: ['functionId'],
+        message: 'No function ID configured. Please configure your settings first.'
+      }],
+      discount: null
+    };
+  }
 
   const baseConfig = {
     quantity,
