@@ -1,13 +1,35 @@
 import { useEffect } from "react";
-import { useFetcher } from "react-router";
+import { useFetcher, useLoaderData } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 
 export const loader = async ({ request }) => {
-  await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
 
-  return null;
+  const response = await admin.graphql(
+    `#graphql
+    query {
+      shop {
+        name
+        email
+        myshopifyDomain
+        url
+        plan {
+          displayName
+          partnerDevelopment
+          shopifyPlus
+        }
+      }
+    }`
+  );
+
+  const responseJson = await response.json();
+
+  return {
+    shop: responseJson.data.shop,
+    session: session,
+  };
 };
 
 export const action = async ({ request }) => {
@@ -76,6 +98,7 @@ export const action = async ({ request }) => {
 };
 
 export default function Index() {
+  const { shop } = useLoaderData();
   const fetcher = useFetcher();
   const shopify = useAppBridge();
   const isLoading =
@@ -94,6 +117,19 @@ export default function Index() {
       <s-button slot="primary-action" onClick={generateProduct}>
         Generate a product
       </s-button>
+
+      <s-section heading="Authenticated Details">
+        <s-box padding="base" borderWidth="base" borderRadius="base" background="subdued">
+          <s-stack direction="block" gap="small">
+            <s-heading>Shop Information</s-heading>
+            <s-text>Name: {shop.name}</s-text>
+            <s-text>Email: {shop.email}</s-text>
+            <s-text>Domain: {shop.myshopifyDomain}</s-text>
+            <s-text>URL: {shop.url}</s-text>
+            <s-text>Plan: {shop.plan.displayName}</s-text>
+          </s-stack>
+        </s-box>
+      </s-section>
 
       <s-section heading="Congrats on creating a new Shopify app 🎉">
         <s-paragraph>
