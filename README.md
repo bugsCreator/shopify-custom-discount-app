@@ -114,6 +114,7 @@ The CLI will provide a URL to install your app on the development store.
 **This will automatically:**
 - Save the Function ID to your shop
 - Create a default discount named "Buy N, get X% off"
+- Add the Meta Fields
 - Set initial values (Buy 2, get 10% off, no products selected)
 
 ### Step 2: Configure Your Discount
@@ -312,8 +313,6 @@ Used by: Admin app for editing
 | `SHOPIFY_API_SECRET` | App API secret | Yes |
 | `SCOPES` | Required: `write_discounts,read_products` | Yes |
 | `SHOPIFY_APP_URL` | App URL (auto-generated in dev) | Yes |
-| `DATABASE_URL` | PostgreSQL connection (auto-generated) | Yes |
-
 ## 🔐 Required Shopify Scopes
 
 - `write_discounts` - Create and manage discount codes
@@ -358,7 +357,7 @@ This project is licensed under the MIT License.
 
 ## 👤 Author
 
-Created by hp
+Created by Bugscreator (https://www.bugscreator.com)
 
 ---
 
