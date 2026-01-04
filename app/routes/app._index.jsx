@@ -198,40 +198,40 @@ export const loader = async ({ request }) => {
   }
 
   // Fallback Logic: Check Discount Node if Shop Metafield missing
-  if (!shopMetafieldValue && discountNode) {
-    const { discountId } = discountNode.discount;
-    const responseDiscount = await admin.graphql(
-      `#graphql
-        query GetDiscount($id: ID!) {
-          discountNode(id: $id) {
-            discount {
-              ... on DiscountAutomaticApp {
-                title
-                metafields(first: 2, namespace: "$app:volume-discount") {
-                  edges {
-                    node {
-                      key
-                      value
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }`,
-      { variables: { id: discountId } }
-    );
-    const responseDiscountJson = await responseDiscount.json();
-    const discount = responseDiscountJson.data.discountNode?.discount;
+  // if (!shopMetafieldValue && discountNode) {
+  //   const { discountId } = discountNode.discount;
+  //   const responseDiscount = await admin.graphql(
+  //     `#graphql
+  //       query GetDiscount($id: ID!) {
+  //         discountNode(id: $id) {
+  //           discount {
+  //             ... on DiscountAutomaticApp {
+  //               title
+  //               metafields(first: 2, namespace: "$app:volume-discount") {
+  //                 edges {
+  //                   node {
+  //                     key
+  //                     value
+  //                   }
+  //                 }
+  //               }
+  //             }
+  //           }
+  //         }
+  //       }`,
+  //     { variables: { id: discountId } }
+  //   );
+  //   const responseDiscountJson = await responseDiscount.json();
+  //   const discount = responseDiscountJson.data.discountNode?.discount;
 
-    if (discount) {
-      const configEdge = discount.metafields.edges.find(edge => edge.node.key === "function-configuration");
-      const legacyConfig = JSON.parse(configEdge?.node?.value || "{}");
-      if (legacyConfig.quantity) config.quantity = legacyConfig.quantity;
-      if (legacyConfig.percentage) config.percentage = legacyConfig.percentage;
-      if (legacyConfig.productIds) config.products = legacyConfig.productIds;
-    }
-  }
+  //   if (discount) {
+  //     const configEdge = discount.metafields.edges.find(edge => edge.node.key === "function-configuration");
+  //     const legacyConfig = JSON.parse(configEdge?.node?.value || "{}");
+  //     if (legacyConfig.quantity) config.quantity = legacyConfig.quantity;
+  //     if (legacyConfig.percentage) config.percentage = legacyConfig.percentage;
+  //     if (legacyConfig.productIds) config.products = legacyConfig.productIds;
+  //   }
+  // }
 
   // --- DATA ENRICHMENT START ---
   // If products are just IDs (strings), fetch their details to support the widget

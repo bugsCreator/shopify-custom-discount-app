@@ -8,9 +8,19 @@ query RunInput {
           amount
         }
       }
+      merchandise {
+        ... on ProductVariant {
+          id
+          product {
+            id
+          }
+        }
+      }
     }
   }
-  discount {
-    discountClasses
+  shop {
+    metafield(namespace: "volume_discount", key: "rules") {
+      value
+    }
   }
 }
