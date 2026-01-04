@@ -53,82 +53,138 @@ export const loader = async ({ request }) => {
   let config = {
     quantity: "2",
     percentage: "10",
-    productIds: []
+    products: [] // This will hold rich objects or IDs
   };
 
   if (shopMetafieldValue) {
     config = {
       quantity: String(shopMetafieldValue.minQty || "2"),
       percentage: String(shopMetafieldValue.percentOff || "10"),
-      productIds: shopMetafieldValue.products || []
-    };
-  } else if (discountNode) {
-    // Fallback: If no shop metafield, try to load from Discount Metafield (Migration path)
-    // We will fetch this in the next step if strictly necessary, but for now specific discount fetch is mainly for the ID/Title existence check
-  }
-
-  if (!discountNode) {
-    return {
-      mode: "create",
-      title: "Volume Discount",
-      config: config
+      products: shopMetafieldValue.products || []
     };
   }
 
-  const { discountId } = discountNode.discount;
-
-  // 2. Fetch full details for the discount (mostly to verify existence/status and get title)
-  // We still fetch this to get the discount title and ID.
-  const responseDiscount = await admin.graphql(
-    `#graphql
-      query GetDiscount($id: ID!) {
-        discountAutomaticApp(id: $id) {
-          title
-          status
-          discountId
-          metafields(first: 2, namespace: "$app:volume-discount") {
-            edges {
-              node {
-                key
-                value
+  // Fallback Logic: Check Discount Node if Shop Metafield missing
+  if (!shopMetafieldValue && discountNode) {
+    const { discountId } = discountNode.discount;
+    const responseDiscount = await admin.graphql(
+      `#graphql
+        query GetDiscount($id: ID!) {
+          discountAutomaticApp(id: $id) {
+            title
+            metafields(first: 2, namespace: "$app:volume-discount") {
+              edges {
+                node {
+                  key
+                  value
+                }
               }
             }
           }
-        }
-      }`,
-    {
-      variables: {
-        id: discountId
-      }
+        }`,
+      { variables: { id: discountId } }
+    );
+    const responseDiscountJson = await responseDiscount.json();
+    const discount = responseDiscountJson.data.discountAutomaticApp;
+
+    if (discount) {
+      const configEdge = discount.metafields.edges.find(edge => edge.node.key === "function-configuration");
+      const legacyConfig = JSON.parse(configEdge?.node?.value || "{}");
+      if (legacyConfig.quantity) config.quantity = legacyConfig.quantity;
+      if (legacyConfig.percentage) config.percentage = legacyConfig.percentage;
+      if (legacyConfig.productIds) config.products = legacyConfig.productIds;
     }
-  );
-
-  const responseDiscountJson = await responseDiscount.json();
-  const discount = responseDiscountJson.data.discountAutomaticApp;
-
-  if (!discount) {
-    return {
-      mode: "create",
-      title: "Volume Discount",
-      config: config
-    };
   }
 
-  // If Shop Metafield was empty, but Discount has config, use Discount config (Legacy/Fallback)
-  if (!shopMetafieldValue) {
-    const configEdge = discount.metafields.edges.find(edge => edge.node.key === "function-configuration");
-    const legacyConfig = JSON.parse(configEdge?.node?.value || "{}");
-    if (legacyConfig.quantity) config.quantity = legacyConfig.quantity;
-    if (legacyConfig.percentage) config.percentage = legacyConfig.percentage;
-    if (legacyConfig.productIds) config.productIds = legacyConfig.productIds;
+  // --- DATA ENRICHMENT START ---
+  // If products are just IDs (strings), fetch their details to support the widget
+  const productIdsToFetch = config.products.filter(p => typeof p === 'string');
+
+  if (productIdsToFetch.length > 0) {
+    const productsResponse = await admin.graphql(
+      `#graphql
+        query GetProductDetails($ids: [ID!]!) {
+          nodes(ids: $ids) {
+            ... on Product {
+              id
+              title
+              handle
+              featuredImage {
+                url
+              }
+            }
+          }
+        }`,
+      {
+        variables: { ids: productIdsToFetch }
+      }
+    );
+
+    const productsJson = await productsResponse.json();
+    const productNodes = productsJson.data.nodes;
+
+    // Create a map for easy lookup
+    const productsMap = {};
+    productNodes.forEach(node => {
+      if (node) {
+        productsMap[node.id] = {
+          id: node.id,
+          title: node.title,
+          handle: node.handle,
+          image: node.featuredImage?.url || ""
+        };
+      }
+    });
+
+    // Replace strings in config.products with rich objects
+    config.products = config.products.map(p => {
+      if (typeof p === 'string') {
+        return productsMap[p] || { id: p, title: "Product (Not Found)", image: "" };
+      }
+      return p;
+    });
+  }
+  // --- DATA ENRICHMENT END ---
+
+  // Determine Title and Mode
+  let title = "Volume Discount";
+  let mode = "create";
+  let discountId = null;
+  let nodeListId = null;
+
+  if (discountNode) {
+    const { discountId: dId } = discountNode.discount;
+    // We might have fetched title above in fallback, strictly speaking we should look it up if we didn't
+    // But for efficiency, let's just use the query if we haven't already.
+    // To keep this clean and robust: always fetch basic discount info if it exists.
+    const responseDiscountCheck = await admin.graphql(
+      `#graphql
+          query GetDiscountBasic($id: ID!) {
+            discountAutomaticApp(id: $id) {
+              title
+              status
+              discountId
+            }
+          }`,
+      { variables: { id: dId } }
+    );
+    const jsonCheck = await responseDiscountCheck.json();
+    const disc = jsonCheck.data.discountAutomaticApp;
+
+    if (disc) {
+      title = disc.title;
+      mode = "edit";
+      discountId = disc.discountId;
+      nodeListId = discountNode.id;
+    }
   }
 
   return {
-    mode: "edit",
-    title: discount.title,
-    config: config,
-    discountId: discount.discountId,
-    id: discountNode.id,
+    mode,
+    title,
+    config,
+    discountId,
+    id: nodeListId,
     shopId: shop.id
   };
 };
@@ -141,16 +197,21 @@ export const action = async ({ request }) => {
   const title = formData.get("title");
   const quantity = parseInt(formData.get("quantity"));
   const percentage = parseFloat(formData.get("percentage"));
-  const productIds = JSON.parse(formData.get("productIds") || "[]");
 
-  // Get Shop ID first (required for creating Shop-owned metafields)
+  // productDetails contains rich info: [{id, title, handle, image}, ...]
+  const productDetails = JSON.parse(formData.get("productDetails") || "[]");
+
+  // Derive simple IDs for the Function Config
+  const productIds = productDetails.map(p => p.id);
+
+  // Get Shop ID first
   const shopResponse = await admin.graphql(`query { shop { id } }`);
   const shopResponseJson = await shopResponse.json();
   const shopId = shopResponseJson.data.shop.id;
 
-  // 1. Save Config to Shop Metafield
+  // 1. Save Config to Shop Metafield (Rich Data)
   const metafieldData = {
-    products: productIds,
+    products: productDetails, // Saving rich objects!
     minQty: quantity,
     percentOff: percentage
   };
@@ -186,6 +247,7 @@ export const action = async ({ request }) => {
     return { errors: metafieldResult.data.metafieldsSet.userErrors };
   }
 
+  // Base config for the Function (Lightweight, just IDs)
   const baseConfig = {
     quantity,
     percentage,
@@ -289,9 +351,17 @@ export default function Index() {
   const [title, setTitle] = useState(loaderData.title);
   const [quantity, setQuantity] = useState(loaderData.config.quantity);
   const [percentage, setPercentage] = useState(loaderData.config.percentage);
-  const [selectedProducts, setSelectedProducts] = useState(
-    loaderData.config.productIds.map(id => ({ id, title: "Product" }))
-  );
+
+  // Initialize selectedProducts handling both legacy (string IDs) and rich objects
+  const [selectedProducts, setSelectedProducts] = useState(() => {
+    const rawProducts = loaderData.config.products || [];
+    return rawProducts.map(p => {
+      if (typeof p === 'string') {
+        return { id: p, title: "Product" }; // Fallback for legacy string IDs
+      }
+      return p; // Already a rich object
+    });
+  });
 
   async function selectProducts() {
     const result = await shopify.resourcePicker({
@@ -302,17 +372,24 @@ export default function Index() {
     });
 
     if (result) {
-      setSelectedProducts(result.selection);
+      // Extract rich info from selection
+      const richSelection = result.selection.map(p => ({
+        id: p.id,
+        title: p.title,
+        handle: p.handle,
+        image: p.images?.[0]?.originalSrc || p.images?.[0]?.url || "" // Handle various API versions
+      }));
+      setSelectedProducts(richSelection);
     }
   }
 
   const handleSave = () => {
-    const productIds = selectedProducts.map(p => p.id);
+    // We send the full rich object array
     const data = {
       title,
       quantity,
       percentage,
-      productIds: JSON.stringify(productIds),
+      productDetails: JSON.stringify(selectedProducts),
     };
 
     if (loaderData.discountId) {

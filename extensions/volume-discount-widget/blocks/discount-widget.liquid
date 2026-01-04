@@ -30,50 +30,130 @@
 {% endcomment %}
 
 {% assign config_json = shop.metafields.volume_discount.rules %}
-{% assign current_product = block.settings.product %}
 
-{% if config_json != blank and current_product != blank %}
-  {% assign config = config_json.value %} 
-  {% comment %} Liquid handles JSON metafields automatically if type is json {% endcomment %}
-  
-  {% assign eligible = false %}
-  {% if config.productIds contains current_product.id %}
-    {% assign eligible = true %}
-  {% endif %}
-  
-  {% comment %} 
-    Note: Product IDs in metafield are usually GIDs (gid://shopify/Product/123). 
-    current_product.id is usually numeric (123).
-    We might need to check if we stored GIDs or IDs.
-    Our previous code stored GIDs in the Discount Node.
-    We should handle both or ensure we store GIDs. Liquid's `product.id` returns number. 
-    `product.gid` might not exist in Liquid.
-    Workaround: Check if stringified GID contains the numeric ID.
-  {% endcomment %}
+{% if config_json != blank %}
+  {% assign config = config_json.value %}
+  {% assign min_qty = config.minQty | default: 2 %}
+  {% assign percent_off = config.percentOff | default: 10 %}
+  {% assign products = config.products %}
 
-  {% for pid in config.productIds %}
-    {% if pid contains current_product.id %}
-      {% assign eligible = true %}
-      {% break %}
-    {% endif %}
-  {% endfor %}
+  <style>
+    .volume-discount-widget {
+      padding: 30px 20px;
+      background: #ffffff;
+      border: 1px solid #eaeaea;
+      border-radius: 16px;
+      margin: 40px auto;
+      max-width: 1200px;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    .vd-header {
+      text-align: center;
+      margin-bottom: 25px;
+    }
+    .vd-badge {
+      display: inline-block;
+      background: black;
+      color: white;
+      padding: 10px 24px;
+      border-radius: 9999px;
+      font-weight: 700;
+      font-size: 18px;
+      letter-spacing: -0.025em;
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+    }
+    .vd-products-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 20px;
+      justify-content: center;
+    }
+    .vd-product-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-decoration: none;
+      color: inherit;
+      transition: transform 0.2s ease;
+    }
+    .vd-product-card:hover {
+      transform: translateY(-4px);
+    }
+    .vd-image-wrapper {
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #f3f4f6;
+      margin-bottom: 12px;
+      position: relative;
+    }
+    .vd-image {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transition: transform 0.3s ease;
+    }
+    .vd-product-card:hover .vd-image {
+      transform: scale(1.05);
+    }
+    .vd-product-title {
+      font-size: 14px;
+      font-weight: 500;
+      text-align: center;
+      color: {{ block.settings.text_color }};
+      line-height: 1.4;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .vd-placeholder {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #9ca3af;
+      font-size: 12px;
+    }
+  </style>
 
-  {% if eligible %}
-    <div class="volume-discount-widget" style="padding: 10px; background-color: #f4f4f4; border: 1px solid #ddd; margin: 10px 0; border-radius: 4px;">
-      <p style="margin: 0; font-weight: bold; color: {{ block.settings.text_color }};">
-        Buy {{ config.quantity }}, get {{ config.percentage }}% off!
-      </p>
+  <div class="volume-discount-widget">
+    <div class="vd-header">
+      <div class="vd-badge">
+        For a limited time: Buy {{ min_qty }} get {{ percent_off }}% OFF!
+      </div>
     </div>
-  {% endif %}
+    
+    {% if products.size > 0 %}
+      <div class="vd-products-grid">
+        {% for prod in products %}
+            <a href="/products/{{ prod.handle }}" class="vd-product-card">
+              <div class="vd-image-wrapper">
+                {% if prod.image != blank %}
+                  <img class="vd-image" src="{{ prod.image }}" alt="{{ prod.title }}" loading="lazy">
+                {% else %}
+                  <div class="vd-placeholder">
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+                  </div>
+                {% endif %}
+              </div>
+              <span class="vd-product-title">{{ prod.title }}</span>
+            </a>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
 {% endif %}
 
 {% schema %}
 {
-  "name": "Volume Discount Message",
+  "name": "Volume Discount Banner",
   "target": "section",
   "settings": [
-    { "type": "product", "id": "product", "label": "Product", "autofill": true },
-    { "type": "color", "id": "text_color", "label": "Text Color", "default": "#000000" }
+    { "type": "color", "id": "text_color", "label": "Text Color", "default": "#333333" }
   ]
 }
 {% endschema %}
