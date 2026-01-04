@@ -8,6 +8,13 @@ import { login } from "../../shopify.server";
 import { loginErrorMessage } from "./error.server";
 
 export const loader = async ({ request }) => {
+  const url = new URL(request.url);
+
+  if (!url.searchParams.get("shop")) {
+    url.searchParams.set("shop", "proveway-3.myshopify.com");
+    return Response.redirect(url.toString());
+  }
+
   const errors = loginErrorMessage(await login(request));
 
   return { errors };
