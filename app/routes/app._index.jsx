@@ -82,7 +82,7 @@ export default function Index() {
                     </InlineStack>
 
                     <Text variant="bodyMd" as="p" tone="subdued">
-                      Set up your volume discount rules, including minimum quantity thresholds, discount percentages, and target products.
+                      Set up your Discounts and more.
                     </Text>
 
                     <div>

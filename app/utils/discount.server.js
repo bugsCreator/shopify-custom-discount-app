@@ -6,8 +6,8 @@
  * Fetch shop metafield and discount configuration
  */
 export async function fetchDiscountConfig(admin) {
-    const response = await admin.graphql(
-        `#graphql
+  const response = await admin.graphql(
+    `#graphql
       query GetInitialData {
         shop {
           id
@@ -27,25 +27,25 @@ export async function fetchDiscountConfig(admin) {
           }
         }
       }`
-    );
+  );
 
-    const data = await response.json();
-    return {
-        shop: data.data.shop,
-        discountNodes: data.data.discountNodes.nodes
-    };
+  const data = await response.json();
+  return {
+    shop: data.data.shop,
+    discountNodes: data.data.discountNodes.nodes
+  };
 }
 
 /**
  * Enrich product IDs with full product details
  */
 export async function enrichProductDetails(admin, productIds) {
-    if (!productIds || productIds.length === 0) {
-        return [];
-    }
+  if (!productIds || productIds.length === 0) {
+    return [];
+  }
 
-    const response = await admin.graphql(
-        `#graphql
+  const response = await admin.graphql(
+    `#graphql
       query GetProductDetails($ids: [ID!]!) {
         nodes(ids: $ids) {
           ... on Product {
@@ -58,58 +58,69 @@ export async function enrichProductDetails(admin, productIds) {
           }
         }
       }`,
-        {
-            variables: { ids: productIds }
-        }
-    );
+    {
+      variables: { ids: productIds }
+    }
+  );
 
-    const data = await response.json();
-    return data.data.nodes.map(node => ({
-        id: node.id,
-        title: node.title,
-        handle: node.handle,
-        image: node.featuredImage?.url || ""
-    })).filter(Boolean);
+  const data = await response.json();
+  return data.data.nodes.map(node => ({
+    id: node.id,
+    title: node.title,
+    handle: node.handle,
+    image: node.featuredImage?.url || ""
+  })).filter(Boolean);
 }
 
 /**
  * Get discount details by ID
  */
 export async function getDiscountDetails(admin, discountId) {
-    const response = await admin.graphql(
-        `#graphql
+  const response = await admin.graphql(
+    `#graphql
       query GetDiscountBasic($id: ID!) {
         discountNode(id: $id) {
+          metafield(namespace: "$app:volume-discount", key: "function-configuration") {
+            id
+            value
+          }
           discount {
             ... on DiscountAutomaticApp {
               title
               status
               discountId
+              combinesWith {
+                orderDiscounts
+                productDiscounts
+                shippingDiscounts
+              }
+              startsAt
+              endsAt
             }
           }
         }
       }`,
-        { variables: { id: discountId } }
-    );
+    { variables: { id: discountId } }
+  );
 
-    const data = await response.json();
-    return data.data.discountNode?.discount;
+  const data = await response.json();
+  return data.data.discountNode;
 }
 
 /**
  * Create a new discount
  */
 export async function createDiscount(admin, { title, quantity, percentage, productIds }) {
-    const functionId = process.env.SHOPIFY_VOLUME_DISCOUNT_ID || "019b8930-7d49-7741-ba32-edd9721a5722";
+  const functionId = process.env.SHOPIFY_VOLUME_DISCOUNT_ID || "019b8930-7d49-7741-ba32-edd9721a5722";
 
-    const baseConfig = {
-        quantity,
-        percentage,
-        productIds,
-    };
+  const baseConfig = {
+    quantity,
+    percentage,
+    productIds,
+  };
 
-    const response = await admin.graphql(
-        `#graphql
+  const response = await admin.graphql(
+    `#graphql
       mutation CreateDiscount($automaticAppDiscount: DiscountAutomaticAppInput!) {
         discountAutomaticAppCreate(automaticAppDiscount: $automaticAppDiscount) {
           userErrors {
@@ -122,44 +133,66 @@ export async function createDiscount(admin, { title, quantity, percentage, produ
           }
         }
       }`,
-        {
-            variables: {
-                automaticAppDiscount: {
-                    title,
-                    functionId,
-                    startsAt: new Date().toISOString(),
-                    metafields: [
-                        {
-                            namespace: "$app:volume-discount",
-                            key: "function-configuration",
-                            type: "json",
-                            value: JSON.stringify(baseConfig),
-                        },
-                    ],
-                },
+    {
+      variables: {
+        automaticAppDiscount: {
+          title,
+          functionId,
+          startsAt: new Date().toISOString(),
+          metafields: [
+            {
+              namespace: "$app:volume-discount",
+              key: "function-configuration",
+              type: "json",
+              value: JSON.stringify(baseConfig),
             },
-        }
-    );
+          ],
+        },
+      },
+    }
+  );
 
-    const data = await response.json();
-    return {
-        errors: data.data.discountAutomaticAppCreate.userErrors,
-        discount: data.data.discountAutomaticAppCreate.automaticAppDiscount
-    };
+  const data = await response.json();
+  return {
+    errors: data.data.discountAutomaticAppCreate.userErrors,
+    discount: data.data.discountAutomaticAppCreate.automaticAppDiscount
+  };
 }
 
 /**
  * Update an existing discount
  */
-export async function updateDiscount(admin, { id, title, quantity, percentage, productIds }) {
-    const baseConfig = {
-        quantity,
-        percentage,
-        productIds,
-    };
+export async function updateDiscount(admin, { id, metafieldId, title, quantity, percentage, productIds }) {
+  const baseConfig = {
+    quantity,
+    percentage,
+    productIds,
+  };
 
-    const response = await admin.graphql(
-        `#graphql
+  let metafieldInput;
+
+  if (metafieldId) {
+    // Updating existing metafield - only include id, type, and value
+    metafieldInput = {
+      id: metafieldId,
+      type: "json",
+      value: JSON.stringify(baseConfig),
+    };
+  } else {
+    // Creating new metafield - include namespace, key, type, and value
+    metafieldInput = {
+      namespace: "$app:volume-discount",
+      key: "function-configuration",
+      type: "json",
+      value: JSON.stringify(baseConfig),
+    };
+  }
+
+  console.log('Update Discount - metafieldInput:', metafieldInput);
+  console.log('Update Discount - baseConfig:', baseConfig);
+
+  const response = await admin.graphql(
+    `#graphql
       mutation UpdateDiscount($id: ID!, $automaticAppDiscount: DiscountAutomaticAppInput!) {
         discountAutomaticAppUpdate(id: $id, automaticAppDiscount: $automaticAppDiscount) {
           userErrors {
@@ -172,42 +205,37 @@ export async function updateDiscount(admin, { id, title, quantity, percentage, p
           }
         }
       }`,
-        {
-            variables: {
-                id,
-                automaticAppDiscount: {
-                    title,
-                    metafields: [
-                        {
-                            namespace: "$app:volume-discount",
-                            key: "function-configuration",
-                            type: "json",
-                            value: JSON.stringify(baseConfig),
-                        },
-                    ],
-                },
-            },
-        }
-    );
+    {
+      variables: {
+        id,
+        automaticAppDiscount: {
+          title,
+          metafields: [metafieldInput],
+        },
+      },
+    }
+  );
 
-    const data = await response.json();
-    return {
-        errors: data.data.discountAutomaticAppUpdate.userErrors
-    };
+  const data = await response.json();
+  console.log('Update Discount - Response:', JSON.stringify(data, null, 2));
+
+  return {
+    errors: data.data.discountAutomaticAppUpdate.userErrors
+  };
 }
 
 /**
  * Save discount configuration to shop metafield
  */
 export async function saveShopMetafield(admin, { shopId, products, minQty, percentOff }) {
-    const metafieldData = {
-        products,
-        minQty,
-        percentOff
-    };
+  const metafieldData = {
+    products,
+    minQty,
+    percentOff
+  };
 
-    const response = await admin.graphql(
-        `#graphql
+  const response = await admin.graphql(
+    `#graphql
       mutation SetShopMetafield($metafields: [MetafieldsSetInput!]!) {
         metafieldsSet(metafields: $metafields) {
           userErrors {
@@ -216,42 +244,42 @@ export async function saveShopMetafield(admin, { shopId, products, minQty, perce
           }
         }
       }`,
-        {
-            variables: {
-                metafields: [
-                    {
-                        ownerId: shopId,
-                        namespace: "volume_discount",
-                        key: "rules",
-                        type: "json",
-                        value: JSON.stringify(metafieldData)
-                    }
-                ]
-            }
-        }
-    );
+    {
+      variables: {
+        metafields: [
+          {
+            ownerId: shopId,
+            namespace: "volume_discount",
+            key: "rules",
+            type: "json",
+            value: JSON.stringify(metafieldData)
+          }
+        ]
+      }
+    }
+  );
 
-    const data = await response.json();
-    return {
-        errors: data.data.metafieldsSet.userErrors
-    };
+  const data = await response.json();
+  return {
+    errors: data.data.metafieldsSet.userErrors
+  };
 }
 
 /**
  * Parse and normalize config from metafield
  */
 export function parseConfig(shopMetafieldValue) {
-    if (!shopMetafieldValue) {
-        return {
-            quantity: "2",
-            percentage: "10",
-            products: []
-        };
-    }
-
+  if (!shopMetafieldValue) {
     return {
-        quantity: String(shopMetafieldValue.minQty || "2"),
-        percentage: String(shopMetafieldValue.percentOff || "10"),
-        products: shopMetafieldValue.products || []
+      quantity: "2",
+      percentage: "10",
+      products: []
     };
+  }
+
+  return {
+    quantity: String(shopMetafieldValue.minQty || "2"),
+    percentage: String(shopMetafieldValue.percentOff || "10"),
+    products: shopMetafieldValue.products || []
+  };
 }

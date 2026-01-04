@@ -20,7 +20,9 @@ import {
     getDiscountDetails,
     createDiscount,
     updateDiscount,
-    parseConfig
+    parseConfig,
+    enrichProductDetails,
+    saveShopMetafield
 } from "../utils/discount.server";
 
 export const loader = async ({ request }) => {
@@ -40,17 +42,28 @@ export const loader = async ({ request }) => {
     let discountId = null;
     let nodeListId = null;
     let status = null;
+    let metafieldId = null;
 
     if (discountNode) {
-        const { discountId: dId } = discountNode.discount;
-        const discountDetails = await getDiscountDetails(admin, dId);
+        const nodeListId = discountNode.id;
+        const discountNodeDetails = await getDiscountDetails(admin, nodeListId);
 
-        if (discountDetails) {
-            title = discountDetails.title;
-            status = discountDetails.status;
+        if (discountNodeDetails && discountNodeDetails.discount) {
+            const { discount, metafield } = discountNodeDetails;
+            title = discount.title;
+            status = discount.status;
             mode = "edit";
-            discountId = discountDetails.discountId;
-            nodeListId = discountNode.id;
+            discountId = discount.discountId;
+            metafieldId = metafield?.id || null;
+
+            if (metafield?.value) {
+                const dc = JSON.parse(metafield.value);
+                config.quantity = String(dc.quantity || config.quantity);
+                config.percentage = String(dc.percentage || config.percentage);
+                if (dc.productIds && dc.productIds.length > 0) {
+                    config.products = await enrichProductDetails(admin, dc.productIds);
+                }
+            }
         }
     }
 
@@ -61,6 +74,7 @@ export const loader = async ({ request }) => {
         config,
         discountId,
         id: nodeListId,
+        metafieldId,
         shopId: shop.id,
         hasConfiguration: !!shopMetafieldValue
     };
@@ -71,6 +85,7 @@ export const action = async ({ request }) => {
     const formData = await request.formData();
 
     const id = formData.get("id");
+    const metafieldId = formData.get("metafieldId");
     const title = formData.get("title");
     const quantity = parseInt(formData.get("quantity"));
     const percentage = parseFloat(formData.get("percentage"));
@@ -78,10 +93,27 @@ export const action = async ({ request }) => {
 
     const productIds = productDetails.map(p => p.id);
 
+    // Save to shop metafield for discount function and widget
+    const shopResponse = await admin.graphql(`query { shop { id } }`);
+    const shopData = await shopResponse.json();
+    const shopId = shopData.data.shop.id;
+
+    const { errors: shopMetafieldErrors } = await saveShopMetafield(admin, {
+        shopId,
+        products: productDetails,
+        minQty: quantity,
+        percentOff: percentage
+    });
+
+    if (shopMetafieldErrors && shopMetafieldErrors.length > 0) {
+        return { errors: shopMetafieldErrors };
+    }
+
     if (id) {
         // Update existing discount
         const { errors } = await updateDiscount(admin, {
             id,
+            metafieldId,
             title,
             quantity,
             percentage,
@@ -117,9 +149,23 @@ export default function Discount() {
     const [title, setTitle] = useState(loaderData.title);
 
     // Pre-populate from settings
-    const quantity = loaderData.config.quantity;
-    const percentage = loaderData.config.percentage;
-    const selectedProducts = loaderData.config.products || [];
+    // Pre-populate from settings (Variables now initialized in state)
+
+    const [quantity, setQuantity] = useState(loaderData.config.quantity);
+    const [percentage, setPercentage] = useState(loaderData.config.percentage);
+    const [selectedProducts, setSelectedProducts] = useState(loaderData.config.products || []);
+    const selectProducts = async () => {
+        const selection = await shopify.resourcePicker({
+            type: 'product',
+            selectionIds: selectedProducts.map(p => ({ id: p.id })),
+            action: 'select',
+            multiple: true,
+        });
+
+        if (selection) {
+            setSelectedProducts(selection);
+        }
+    };
 
     const handleSave = () => {
         const data = {
@@ -131,6 +177,9 @@ export default function Discount() {
 
         if (loaderData.discountId) {
             data.id = loaderData.discountId;
+            if (loaderData.metafieldId) {
+                data.metafieldId = loaderData.metafieldId;
+            }
         }
 
         submit(data, { method: "post" });
@@ -190,42 +239,59 @@ export default function Discount() {
                                 </BlockStack>
                             </Card>
 
-                            {/* Configuration Summary */}
+                            {/* Configuration */}
                             <Card>
                                 <BlockStack gap="400">
-                                    <Text variant="headingMd" as="h2">Configuration Summary</Text>
-                                    <Text variant="bodyMd" tone="subdued">
-                                        These values are pulled from your settings. To change them, update your settings.
-                                    </Text>
+                                    <Text variant="headingMd" as="h2">Discount Configuration</Text>
 
-                                    <div style={{
-                                        padding: '16px',
-                                        backgroundColor: '#F6F6F7',
-                                        borderRadius: '8px'
-                                    }}>
-                                        <BlockStack gap="300">
-                                            <InlineStack align="space-between">
-                                                <Text variant="bodyMd" tone="subdued">Minimum Quantity:</Text>
-                                                <Text variant="bodyMd" fontWeight="semibold">{quantity}</Text>
-                                            </InlineStack>
+                                    <InlineStack gap="400">
+                                        <TextField
+                                            label="Minimum Quantity"
+                                            type="number"
+                                            value={quantity}
+                                            onChange={setQuantity}
+                                            autoComplete="off"
+                                        />
+                                        <TextField
+                                            label="Discount Percentage"
+                                            type="number"
+                                            suffix="%"
+                                            value={percentage}
+                                            onChange={setPercentage}
+                                            autoComplete="off"
+                                            min={1}
+                                            max={80}
+                                            helpText="Enter a value between 1% and 80%"
+                                        />
+                                    </InlineStack>
 
-                                            <InlineStack align="space-between">
-                                                <Text variant="bodyMd" tone="subdued">Discount Percentage:</Text>
-                                                <Text variant="bodyMd" fontWeight="semibold">{percentage}%</Text>
-                                            </InlineStack>
+                                    <BlockStack gap="200">
+                                        <Text variant="headingSm" as="h3">Target Products</Text>
+                                        <div style={{ padding: '12px', background: '#f6f6f7', borderRadius: '8px' }}>
+                                            {selectedProducts.length > 0 ? (
+                                                <BlockStack gap="200">
+                                                    {selectedProducts.map((product) => (
+                                                        <InlineStack key={product.id} align="space-between">
+                                                            <Text variant="bodyMd" fontWeight="bold">{product.title}</Text>
+                                                            <Button
+                                                                variant="plain"
+                                                                tone="critical"
+                                                                onClick={() => setSelectedProducts(selectedProducts.filter(p => p.id !== product.id))}
+                                                            >
+                                                                Remove
+                                                            </Button>
+                                                        </InlineStack>
+                                                    ))}
+                                                </BlockStack>
+                                            ) : (
+                                                <Text variant="bodyMd" tone="subdued">No products selected</Text>
+                                            )}
+                                        </div>
 
-                                            <InlineStack align="space-between">
-                                                <Text variant="bodyMd" tone="subdued">Target Products:</Text>
-                                                <Text variant="bodyMd" fontWeight="semibold">
-                                                    {selectedProducts.length} product(s)
-                                                </Text>
-                                            </InlineStack>
-                                        </BlockStack>
-                                    </div>
-
-                                    <Button onClick={() => navigate("/app/settings")} variant="plain">
-                                        Update Settings
-                                    </Button>
+                                        <div>
+                                            <Button onClick={selectProducts}>Select Products</Button>
+                                        </div>
+                                    </BlockStack>
                                 </BlockStack>
                             </Card>
 
@@ -246,8 +312,8 @@ export default function Discount() {
                         </BlockStack>
                     </form>
                 </Layout.Section>
-            </Layout>
-        </Page>
+            </Layout >
+        </Page >
     );
 }
 

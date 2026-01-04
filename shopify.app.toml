@@ -2,7 +2,7 @@
 
 client_id = "81ed1c4fad8e69f7da1fcdfeff0c5f08"
 name = "discount-app"
-application_url = "https://d83e3fa98b27.ngrok-free.app"
+application_url = "https://d390ef4ca6df.ngrok-free.app"
 embedded = true
 
 [build]
@@ -25,7 +25,7 @@ scopes = "write_products,write_discounts"
 
 [auth]
 redirect_urls = [
-  "https://d83e3fa98b27.ngrok-free.app/auth",
-  "https://d83e3fa98b27.ngrok-free.app/auth/callback",
-  "https://d83e3fa98b27.ngrok-free.app/auth/login"
+  "https://d390ef4ca6df.ngrok-free.app/auth",
+  "https://d390ef4ca6df.ngrok-free.app/auth/callback",
+  "https://d390ef4ca6df.ngrok-free.app/auth/login"
 ]
