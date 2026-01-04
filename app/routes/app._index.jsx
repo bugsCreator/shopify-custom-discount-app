@@ -92,8 +92,8 @@ const makeQ = async (admin) => {
 
 export const loader = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
-  const m = await makeQ(admin);
-  console.log("---------", m, "---------")
+  // const m = await makeQ(admin);
+  // console.log("---------", m, "---------")
 
 
   // 1. Fetch Shop details (for Metafields) and Discount info
@@ -203,13 +203,17 @@ export const loader = async ({ request }) => {
     const responseDiscount = await admin.graphql(
       `#graphql
         query GetDiscount($id: ID!) {
-          discountAutomaticApp(id: $id) {
-            title
-            metafields(first: 2, namespace: "$app:volume-discount") {
-              edges {
-                node {
-                  key
-                  value
+          discountNode(id: $id) {
+            discount {
+              ... on DiscountAutomaticApp {
+                title
+                metafields(first: 2, namespace: "$app:volume-discount") {
+                  edges {
+                    node {
+                      key
+                      value
+                    }
+                  }
                 }
               }
             }
@@ -218,7 +222,7 @@ export const loader = async ({ request }) => {
       { variables: { id: discountId } }
     );
     const responseDiscountJson = await responseDiscount.json();
-    const discount = responseDiscountJson.data.discountAutomaticApp;
+    const discount = responseDiscountJson.data.discountNode?.discount;
 
     if (discount) {
       const configEdge = discount.metafields.edges.find(edge => edge.node.key === "function-configuration");
@@ -294,16 +298,20 @@ export const loader = async ({ request }) => {
     const responseDiscountCheck = await admin.graphql(
       `#graphql
           query GetDiscountBasic($id: ID!) {
-            discountAutomaticApp(id: $id) {
-              title
-              status
-              discountId
+            discountNode(id: $id) {
+              discount {
+                ... on DiscountAutomaticApp {
+                  title
+                  status
+                  discountId
+                }
+              }
             }
           }`,
       { variables: { id: dId } }
     );
     const jsonCheck = await responseDiscountCheck.json();
-    const disc = jsonCheck.data.discountAutomaticApp;
+    const disc = jsonCheck.data.discountNode?.discount;
 
     if (disc) {
       title = disc.title;
