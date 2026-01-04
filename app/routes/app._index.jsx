@@ -15,8 +15,86 @@ import {
 import { authenticate } from "../shopify.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 
+
+
+const makeQ = async (admin) => {
+  const title = "Buy X Get N%";
+  const quantity = 2;
+  const percentage = parseFloat(10);
+  const productIds = []
+
+  // Format matches User Request: { products, minQty, percentOff }
+  const baseConfig = {
+    products: productIds,
+    minQty: quantity,
+    percentOff: percentage,
+  };
+
+  const response = await admin.graphql(
+    `#graphql
+      mutation CreateDiscount($automaticAppDiscount: DiscountAutomaticAppInput!, $metafieldsSetInput: [MetafieldsSetInput!]!) {
+        discountAutomaticAppCreate(automaticAppDiscount: $automaticAppDiscount) {
+          userErrors {
+            field
+            message
+          }
+          automaticAppDiscount {
+            discountId
+            title
+          }
+        }
+        metafieldsSet(metafields: $metafieldsSetInput) {
+            userErrors {
+                field
+                message
+            }
+        }
+      }`,
+    {
+      variables: {
+        automaticAppDiscount: {
+          title,
+          functionId: "019b8930-7d49-7741-ba32-edd9721a5722",
+          startsAt: new Date(Date.now() - 3600000).toISOString(),
+          metafields: [
+            {
+              namespace: "$app:volume-discount",
+              key: "function-configuration",
+              type: "json",
+              value: JSON.stringify(baseConfig),
+            },
+          ],
+          discountClasses: ["PRODUCT"],
+        },
+        metafieldsSetInput: [
+          {
+            namespace: "volume_discount",
+            key: "rules",
+            type: "json",
+            ownerId: `gid://shopify/Shop/${(await admin.graphql(`{ shop { id } }`).then(r => r.json())).data.shop.id.split('/').pop()}`,
+            value: JSON.stringify(baseConfig)
+          }
+        ]
+      },
+    }
+  );
+
+  const responseJson = await response.json();
+  const errors = responseJson.data.discountAutomaticAppCreate?.userErrors || [];
+  const metafieldErrors = responseJson.data.metafieldsSet?.userErrors || [];
+
+  if (errors.length > 0 || metafieldErrors.length > 0) {
+    return { errors: [...errors, ...metafieldErrors] };
+  }
+
+  return { success: true, discount: responseJson.data.discountAutomaticAppCreate.automaticAppDiscount };
+};
+
 export const loader = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
+  const m = await makeQ(admin);
+  console.log("---------", m, "---------")
+
 
   // 1. Fetch Shop details (for Metafields) and Discount info
   const responseInitial = await admin.graphql(
@@ -41,6 +119,61 @@ export const loader = async ({ request }) => {
         }
       }`
   );
+
+
+  // const response = await admin.graphql(`
+  //     #graphql
+  //     query {
+  //       shopifyFunctions(first: 10) {
+  //         nodes {
+  //           id
+  //           title
+  //           apiType
+  //         }
+  //       }
+  //     }
+  //   `);
+
+  // try {
+  //   const data = await response.json();
+  //   console.log("shopifyFunctions", data.data.shopifyFunctions.nodes);
+  // } catch (error) {
+  //   console.log("shopifyFunctions", error);
+  // }
+
+
+  //   const responseDiscount = await admin.graphql(`
+  //     #graphql
+  //     mutation {
+  //       discountAutomaticAppCreate(
+  //         automaticAppDiscount: {
+  //           title: "Buy 2 Get 40%"
+  //           functionId: "019b8930-7d49-7741-ba32-edd9721a5722"
+  //           startsAt: "${new Date().toISOString()}"
+  //  discountClasses: [
+  //   PRODUCT
+  // ]
+  //         }
+  //       ) {
+  //         automaticAppDiscount {
+
+  //           status
+  //         }
+  //         userErrors {
+  //           message
+  //         }
+  //       }
+  //     }
+  //   `);
+
+  //   try {
+  //     const data = await responseDiscount.json();
+  //     console.log("discountAutomaticAppCreate", JSON.stringify(data))
+  //   } catch (error) {
+  //     console.log("discountAutomaticAppCreate", error)
+  //   }
+
+  // return json(data);
 
   const responseInitialJson = await responseInitial.json();
   const shop = responseInitialJson.data.shop;
@@ -122,6 +255,7 @@ export const loader = async ({ request }) => {
 
     const productsJson = await productsResponse.json();
     const productNodes = productsJson.data.nodes;
+
 
     // Create a map for easy lookup
     const productsMap = {};
@@ -254,7 +388,8 @@ export const action = async ({ request }) => {
     productIds,
   };
 
-  const functionId = "bb2f00de-e779-90e3-7141-d67d5d765661b27f22c4";
+  // Determine Function ID from Env or Fallback
+  const functionId = process.env.SHOPIFY_VOLUME_DISCOUNT_ID || "bb2f00de-e779-90e3-7141-d67d5d765661b27f22c5";
 
   if (id) {
     // UPDATE Existing Discount
