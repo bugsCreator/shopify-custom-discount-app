@@ -40,7 +40,7 @@ export const action = async ({ request, params }) => {
 
     const response = await admin.graphql(
         `#graphql
-      mutation CreateDiscount($automaticAppDiscount: DiscountAutomaticAppInput!) {
+      mutation CreateDiscount($automaticAppDiscount: DiscountAutomaticAppInput!, $metafieldsSetInput: [MetafieldsSetInput!]!) {
         discountAutomaticAppCreate(automaticAppDiscount: $automaticAppDiscount) {
           userErrors {
             field
@@ -51,13 +51,19 @@ export const action = async ({ request, params }) => {
             title
           }
         }
+        metafieldsSet(metafields: $metafieldsSetInput) {
+            userErrors {
+                field
+                message
+            }
+        }
       }`,
         {
             variables: {
                 automaticAppDiscount: {
                     title,
                     functionId,
-                    startsAt: new Date().toISOString(),
+                    startsAt: new Date(Date.now() - 3600000).toISOString(),
                     metafields: [
                         {
                             namespace: "$app:volume-discount",
@@ -67,6 +73,15 @@ export const action = async ({ request, params }) => {
                         },
                     ],
                 },
+                metafieldsSetInput: [
+                    {
+                        namespace: "volume_discount",
+                        key: "rules",
+                        type: "json",
+                        ownerId: `gid://shopify/Shop/${(await admin.graphql(`{ shop { id } }`).then(r => r.json())).data.shop.id.split('/').pop()}`,
+                        value: JSON.stringify(baseConfig)
+                    }
+                ]
             },
         }
     );

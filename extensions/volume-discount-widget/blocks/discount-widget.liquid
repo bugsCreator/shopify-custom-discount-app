@@ -1,0 +1,79 @@
+{% comment %}
+  Volume Discount Widget
+  Displays "Buy 2, get X% off" if the current product is eligible.
+  Reads configuration from the 'volume-discount' app definition/metafield.
+  Actually, since the logic runs on Shopify Functions, we need to know WHICH products are eligible.
+  The App stores configuration in "$app:volume-discount.function-configuration" on the Discount Node,
+  BUT usually theme app extensions can't easily access specific Discount Nodes unless we use an App Proxy or Metafields on the Shop/Product.
+
+  The user requirement says: "If the current product isn’t in the configured list, render nothing."
+  To do this efficiently without an App Proxy, we should verify if we can store the list of eligible products 
+  (or a tag, or a metafield on the product itself) when the user saves the discount.
+
+  However, for this MVP, we might have to rely on a limitation or a workaround.
+  Wait, the prompt asked to store config in "shop metafields". 
+  "UI saves config to shop metafield (volume_discount.rules)".
+  If we did that, we could read `shop.metafields.volume_discount.rules`.
+  
+  BUT currently our App User Interface (UI) saves to the *Discount Node* (standard for Functions).
+  To fully satisfy the Widget requirement, we really SHOULD update our UI to ALSO save to the Shop Metafield,
+  OR we can try to fetch the discount data.
+  
+  Let's stick to the prompt's explicit instruction for the Widget:
+  "Widget text (dynamic): “Buy 2, get {percentOff}% off”. If the current product isn’t in the configured list, render nothing."
+
+  WE NEED TO UPDATE THE ADMIN UI TO SAVE TO SHOP METAFIELDS TO MAKE THIS WIDGET WORK EASILY.
+  If not, the widget has no way to validly check efficiently in Liquid.
+  
+  Let's assume we will update the UI to save to `shop.metafields.volume_discount.rules`.
+  The liquid code below assumes that data exists.
+{% endcomment %}
+
+{% assign config_json = shop.metafields.volume_discount.rules %}
+{% assign current_product = block.settings.product %}
+
+{% if config_json != blank and current_product != blank %}
+  {% assign config = config_json.value %} 
+  {% comment %} Liquid handles JSON metafields automatically if type is json {% endcomment %}
+  
+  {% assign eligible = false %}
+  {% if config.productIds contains current_product.id %}
+    {% assign eligible = true %}
+  {% endif %}
+  
+  {% comment %} 
+    Note: Product IDs in metafield are usually GIDs (gid://shopify/Product/123). 
+    current_product.id is usually numeric (123).
+    We might need to check if we stored GIDs or IDs.
+    Our previous code stored GIDs in the Discount Node.
+    We should handle both or ensure we store GIDs. Liquid's `product.id` returns number. 
+    `product.gid` might not exist in Liquid.
+    Workaround: Check if stringified GID contains the numeric ID.
+  {% endcomment %}
+
+  {% for pid in config.productIds %}
+    {% if pid contains current_product.id %}
+      {% assign eligible = true %}
+      {% break %}
+    {% endif %}
+  {% endfor %}
+
+  {% if eligible %}
+    <div class="volume-discount-widget" style="padding: 10px; background-color: #f4f4f4; border: 1px solid #ddd; margin: 10px 0; border-radius: 4px;">
+      <p style="margin: 0; font-weight: bold; color: {{ block.settings.text_color }};">
+        Buy {{ config.quantity }}, get {{ config.percentage }}% off!
+      </p>
+    </div>
+  {% endif %}
+{% endif %}
+
+{% schema %}
+{
+  "name": "Volume Discount Message",
+  "target": "section",
+  "settings": [
+    { "type": "product", "id": "product", "label": "Product", "autofill": true },
+    { "type": "color", "id": "text_color", "label": "Text Color", "default": "#000000" }
+  ]
+}
+{% endschema %}

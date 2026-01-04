@@ -23,6 +23,9 @@ export function run(input) {
     input?.discountNode?.metafield?.value ?? "{}"
   );
 
+  console.error("Input:", JSON.stringify(input));
+  console.error("Configuration:", JSON.stringify(configuration));
+
   const minQuantity = parseInt(configuration.quantity) || 0;
   const percentage = parseFloat(configuration.percentage) || 0;
   // productIds is an array of strings e.g. ["gid://shopify/Product/123"]
